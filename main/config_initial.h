@@ -18,15 +18,16 @@
 #define BASE64_OUTPUT_SIZE 65
 
 void valores_iniciales(void){
-	grabar_nvs("4_SERVER-TIME","30");
+	grabar_nvs("4_SERVER-TIME","10");
 	grabar_nvs("1_TRAMA-TIME","500");
-	grabar_nvs("2_WiFi-AP-PASS","ivam45678");
-	grabar_nvs("2_WiFi-AP-IP","124.213.16.29");
-	grabar_nvs("2_WiFi-ST-SSID","WIFI_PRUEBAS");
-	grabar_nvs("2_WiFi-ST-PASS","12345678");
-	grabar_nvs("2_WiFi-ST-INTE","3");
+	grabar_nvs("2_WIFI-AP-PASS","ivam45678");
+	grabar_nvs("2_WIFI-AP-IP","124.213.16.29");
+	grabar_nvs("2_WIFI-ST-SSID","WIFI_PRUEBAS");
+	grabar_nvs("2_WIFI-ST-PASS","12345678");
+	grabar_nvs("2_WIFI-ST-INTE","3");
 	grabar_nvs("4_URL-TRAMA","https://atsdev.actiontracker.es/ivtramas/api-tramas/api/trama/saveFromESP32");
 	grabar_nvs("4_URL-LOGIN","https://atsdev.actiontracker.es/api-ats/authDevice/login");
+	grabar_nvs("4_URL-REG","https://atsdev.actiontracker.es/api-ats/device2/create");
 	grabar_nvs("4_TOKEN-LOGIN","Basic SUFtaW5pLTAxOjAxMEEwMDAwODExMmNmYTQzNjMwMzQzNzMzYTU1MTQ4IA");
 	grabar_nvs("4_TIMEOUT-HTTP","8000");
 	grabar_nvs("4_TOKEN-TIME","12");
@@ -74,7 +75,6 @@ void encrypt_any_length_string(const char *input, uint8_t *key, uint8_t *iv,
     free(encrypt_output);
 }
 
-
 static esp_err_t request_and_store_ahsn(){
     static const char *AHSN_TAG = "REQUEST_AND_STORE_AHSN";
     esp_log_level_set(AHSN_TAG, ESP_LOG_INFO);
@@ -103,7 +103,7 @@ static esp_err_t request_and_store_ahsn(){
         	ESP_LOGE(AHSN_TAG, "Invalid data format: could not find '-' delimiter");
             goto cleanup;  // jump to the cleanup section of the code
         }
-        if (strstr(data_as_string, "d") == NULL){ //CAMBIAR A "g" al utilizar en hardware final
+        if (strstr(data_as_string, "d") == NULL){
         	ESP_LOGE(AHSN_TAG, "Invalid data format: could not find 'g' delimiter");
             goto cleanup;  // jump to the cleanup section of the code
         }
@@ -138,21 +138,31 @@ static esp_err_t request_and_store_ahsn(){
 
         char * ahsn = malloc(33*sizeof(char));
 
-        strcpy(ahsn, "020a0000"); //Informacion por defecto de ActionTracker
+        strcpy(ahsn, ":020a0000"); //Informacion por defecto de ActionTracker
         strcat(ahsn, mac_esp);
 
+        writex_nvs("7_SERIAL_ID", ahsn);
         ESP_LOGI(AHSN_TAG, "This is the number after mac esp %s", ahsn);
         char enc_key[32] = "@AjH39zYz!by3Y#Aw4v%n8KZssaMpETT";
         char enc_iv[16] = "Bx3K6U3@^955ZN5G";
 
         char * encrypted_ahsn = (char *) malloc(BASE64_OUTPUT_SIZE);
         size_t base64_len = BASE64_OUTPUT_SIZE;
+
         encrypt_any_length_string(ahsn, (uint8_t *)enc_key, (uint8_t *)enc_iv, encrypted_ahsn, &base64_len);
         ESP_LOGI(AHSN_TAG, "base64 output: %s\n", encrypted_ahsn);
-        grabar_nvs("7_USER_ID", encrypted_ahsn);
-        free(encrypted_ahsn);
-        writex_nvs("7_STATUS-MATR", "1");
 
+        char * ahsn_base64 = (char *) malloc(BASE64_OUTPUT_SIZE);
+        size_t *olen = (size_t *) malloc(BASE64_OUTPUT_SIZE);
+        mbedtls_base64_encode((unsigned char *)ahsn_base64, base64_len, olen, (const unsigned char *) ahsn, strlen(ahsn));
+        ESP_LOGI(AHSN_TAG, "AHSN BASE64 output: %s\n", ahsn_base64);
+
+        writex_nvs("7_USER_ID", encrypted_ahsn);
+        writex_nvs("7_AHSN_BASE64", ahsn_base64);
+        free(encrypted_ahsn);
+        free(olen);
+        free(ahsn_base64);
+       // writex_nvs("7_STATUS-MATR", "1");
         return ESP_OK;
 
         cleanup:
@@ -164,6 +174,7 @@ static esp_err_t request_and_store_ahsn(){
     	writex_nvs("7_STATUS-MATR", "0");
     	return ESP_FAIL;
     }
-
 }
+
+
 #endif /* MAIN_CONFIG_INITIAL_H_ */

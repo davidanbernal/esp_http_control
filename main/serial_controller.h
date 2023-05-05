@@ -25,6 +25,7 @@
 #define TXD_PIN (GPIO_NUM_23)
 #define RXD_PIN (GPIO_NUM_22)
 #define amount_of_temperature_sensors 3
+#define amount_of_digital_inputs 1
 #define amount_of_analog_sensors 8
 #define amount_of_tanques_sensors 4
 #define amount_of_inclinacion_sensors 1
@@ -48,6 +49,11 @@ typedef struct{ //Estructura temperaturas
     int valor1;
     uint8_t id; //puerto
 }temperaturas;
+
+typedef struct{
+	int valor1;
+	uint8_t id;
+}digital_inputs;
 
 typedef struct{ //Estructura analogicos
     int valor1;
@@ -97,6 +103,7 @@ typedef struct{ //Estructura ventiladores
 typedef struct{
 	bool temperatura;
 	bool liquido;
+	bool digital_input;
 	bool inclinacion;
 	bool gps;
 	bool analogico;
@@ -291,7 +298,7 @@ const uart_config_t uart_config_for_protocol = { //EL CONST SIGNIFICA QUE NO SE 
 static EventGroupHandle_t synchronize_serial_coms_group;
 const int not_parsing_data = BIT0;
 //Variable global de web buffer
-char *web_buffer = NULL;
+char *web_buffer = "|";
 //Variables globales de los endpoints
 char TRANS[100];
 char TEMP[100];
@@ -318,6 +325,7 @@ char *get_gnss(void){return GNSS;}
 char *get_ds18b20(void){return DS18B20;}
 //-----------------------------------------------
 temperaturas temperatura[amount_of_temperature_sensors];
+digital_inputs digital_input[amount_of_digital_inputs];
 analogicos analogico[amount_of_analog_sensors];
 tanques tanque[amount_of_tanques_sensors];
 inclinaciones inclinacion[amount_of_inclinacion_sensors];
@@ -375,8 +383,10 @@ static void endpoint_discriminator(){
 	strcpy(INTERRUP, "|");
 	strcpy(TEMPO, "|");
 	strcpy(GNSS, "|");
+	char * web_buffer_for_endpoints = malloc(400*sizeof(char));
+	strcpy(web_buffer_for_endpoints, web_buffer);
 	uint8_t q, j, i, number;
-	char ** web_buffer_tokenized = split_sensors(web_buffer, &q, "|");
+	char ** web_buffer_tokenized = split_sensors(web_buffer_for_endpoints, &q, "|");
 	char * buffer = malloc(100*sizeof(char));
 	for(j = 0; j < q; j++){
 		strcpy(buffer, web_buffer_tokenized[j]);
@@ -450,7 +460,7 @@ static void endpoint_discriminator(){
 			}
 		}
 	}
-	/*ESP_LOGI("ENDPOINT_DISCRIMINATOR", "This is TEMP %s", TEMP);
+/*	ESP_LOGI("ENDPOINT_DISCRIMINATOR", "This is TEMP %s", TEMP);
 	ESP_LOGI("ENDPOINT_DISCRIMINATOR", "This is TRANS %s", TRANS);
 	ESP_LOGI("ENDPOINT_DISCRIMINATOR", "This is TANQ %s", TANQ);
 	ESP_LOGI("ENDPOINT_DISCRIMINATOR", "This is DISP %s", DISP);
@@ -460,6 +470,7 @@ static void endpoint_discriminator(){
 	ESP_LOGI("ENDPOINT_DISCRIMINATOR", "This is TEMPO %s", TEMPO);
 	ESP_LOGI("ENDPOINT_DISCRIMINATOR", "This is GNSS %s", GNSS);*/
 	free(buffer);
+	free(web_buffer_for_endpoints);
 }
 
 //Esta informacion depende netamente de la licencia
@@ -534,6 +545,7 @@ static void web_buffer_constructor(modulos_response verificador){
 	char * auxiliary_string = malloc(12*sizeof(char));
 	uint8_t port_associated;
 	uint8_t vector_position;
+	strcpy(web_buffer, "|");
 	for (uint8_t i = 0; i < keys_ports_counter; i++){
 		sprintf(auxiliary_string, "%d", keys_with_ports[i]);
 		strcat(web_buffer, auxiliary_string);
@@ -548,6 +560,15 @@ static void web_buffer_constructor(modulos_response verificador){
 			if(verificador.temperatura){
 			    sprintf(auxiliary_string, "%d", temperatura[vector_position].valor1);
 			    strcat(web_buffer, auxiliary_string);
+			}
+			else{
+				strcat(web_buffer, "-");
+			}
+		}
+		else if(port_associated == 4){
+			if(verificador.digital_input){
+				sprintf(auxiliary_string, "%d", digital_input[vector_position].valor1);
+				strcat(web_buffer, auxiliary_string);
 			}
 			else{
 				strcat(web_buffer, "-");
@@ -659,7 +680,7 @@ static void RequestForSTMData(const char* logName, uint8_t tipo_solicitud, uint8
 	const uint8_t request_to_stm[7] = {tipo_solicitud, Port, SlaveNumber, New_value, New_value2, New_value3, modulos_app};
 	//const uint8_t request_to_stm[7] = {0, 0, 0, 0, 255, 0, 1};
     const int txBytes = uart_write_bytes(UART_NUM_1, request_to_stm, 7);
-//    ESP_LOGI(logName, "Wrote %d bytes", txBytes);
+    ESP_LOGI(logName, "Wrote %d bytes", txBytes);
 }
 
 /*Tarea de transmisión por UART, esta tarea esencialmente pide información de los todos los modulos de la STM32
@@ -682,7 +703,16 @@ static void allocate_data(uint8_t port_min, uint8_t port_max, uint8_t module, ch
 		case TEMPERATURE_SENSORS:
 			while(port <= port_max){
 				temperatura[i].valor1 = atoi(sensor_data[i]);
-				//ESP_LOGI(ALLOCATE_TASK_TAG, "This is temperature posicion %d VALOR1: %d", i, temperatura[i].valor1);
+			//	ESP_LOGI(ALLOCATE_TASK_TAG, "This is temperature posicion %d VALOR1: %d", i, temperatura[i].valor1);
+				i++;
+				port++;
+			}
+			break;
+
+		case DIGITAL_INPUT_SENSORS:
+			while(port <= port_max){
+				digital_input[i].valor1 = atoi(sensor_data[i]);
+			//	ESP_LOGI(ALLOCATE_TASK_TAG, "This is temperature posicion %d VALOR1: %d", i, digital_input[i].valor1);
 				i++;
 				port++;
 			}
@@ -696,11 +726,11 @@ static void allocate_data(uint8_t port_min, uint8_t port_max, uint8_t module, ch
 				tanque[i].valor3 = atoi(splitted_sensor_data[2]);
 				tanque[i].valor4 = atoi(splitted_sensor_data[3]);
 				tanque[i].valor5 = atoi(splitted_sensor_data[4]);
-		/*		ESP_LOGI(ALLOCATE_TASK_TAG, "This is tanque posicion %d, VALOR1 %d", i, tanque[i].valor1);
+			/*	ESP_LOGI(ALLOCATE_TASK_TAG, "This is tanque posicion %d, VALOR1 %d", i, tanque[i].valor1);
 				ESP_LOGI(ALLOCATE_TASK_TAG, "This is tanque posicion %d, VALOR2 %d", i, tanque[i].valor2);
 				ESP_LOGI(ALLOCATE_TASK_TAG, "This is tanque posicion %d, VALOR3 %d", i, tanque[i].valor3);
 				ESP_LOGI(ALLOCATE_TASK_TAG, "This is tanque posicion %d, VALOR4 %d", i, tanque[i].valor4);
-				ESP_LOGI(ALLOCATE_TASK_TAG, "This is tanque posicion %d, VALOR5 %d", i, tanque[i].valor5); */
+				ESP_LOGI(ALLOCATE_TASK_TAG, "This is tanque posicion %d, VALOR5 %d", i, tanque[i].valor5);*/
 				i++;
 				port++;
 				q++;
@@ -712,8 +742,8 @@ static void allocate_data(uint8_t port_min, uint8_t port_max, uint8_t module, ch
 				splitted_sensor_data = split_sensors(sensor_data[q], &j, ":");
 				analogico[i].valor1 = atoi(splitted_sensor_data[0]);
 				analogico[i].valor2 = atoi(splitted_sensor_data[1]);
-		/*		ESP_LOGI(ALLOCATE_TASK_TAG, "This is analogico posicion %d VALOR1: %d", i, analogico[i].valor1);
-				ESP_LOGI(ALLOCATE_TASK_TAG, "This is analogico posicion %d VALOR2: %d", i, analogico[i].valor2); */
+//				ESP_LOGI(ALLOCATE_TASK_TAG, "This is analogico posicion %d VALOR1: %d", i, analogico[i].valor1);
+//				ESP_LOGI(ALLOCATE_TASK_TAG, "This is analogico posicion %d VALOR2: %d", i, analogico[i].valor2);
 				i++;
 				port++;
 				q++;
@@ -733,14 +763,14 @@ static void allocate_data(uint8_t port_min, uint8_t port_max, uint8_t module, ch
 				sensorGPS[i].valor6 = atoi(splitted_sensor_data[5]);
 				sensorGPS[i].valor7 = atoi(splitted_sensor_data[6]);
 				sensorGPS[i].valor8 = atoi(splitted_sensor_data[7]);
-		/*		ESP_LOGI(ALLOCATE_TASK_TAG, "This is sensorGPS posicion %d VALOR1: %d", i, sensorGPS[i].valor1);
+	/*			ESP_LOGI(ALLOCATE_TASK_TAG, "This is sensorGPS posicion %d VALOR1: %d", i, sensorGPS[i].valor1);
 				ESP_LOGI(ALLOCATE_TASK_TAG, "This is sensorGPS posicion %d VALOR2: %s", i, sensorGPS[i].valor2);
 				ESP_LOGI(ALLOCATE_TASK_TAG, "This is sensorGPS posicion %d VALOR3: %f", i, sensorGPS[i].valor3);
 				ESP_LOGI(ALLOCATE_TASK_TAG, "This is sensorGPS posicion %d VALOR4: %f", i, sensorGPS[i].valor4);
 				ESP_LOGI(ALLOCATE_TASK_TAG, "This is sensorGPS posicion %d VALOR5: %d", i, sensorGPS[i].valor5);
 				ESP_LOGI(ALLOCATE_TASK_TAG, "This is sensorGPS posicion %d VALOR6: %d", i, sensorGPS[i].valor6);
 				ESP_LOGI(ALLOCATE_TASK_TAG, "This is sensorGPS posicion %d VALOR7: %d", i, sensorGPS[i].valor7);
-				ESP_LOGI(ALLOCATE_TASK_TAG, "This is sensorGPS posicion %d VALOR8: %d", i, sensorGPS[i].valor8); */
+				ESP_LOGI(ALLOCATE_TASK_TAG, "This is sensorGPS posicion %d VALOR8: %d", i, sensorGPS[i].valor8);*/
 				i++;
 				port++;
 				q++;
@@ -750,7 +780,7 @@ static void allocate_data(uint8_t port_min, uint8_t port_max, uint8_t module, ch
 		case DIGITAL_OUTPUT_SENSORS:
 			while(port <= port_max){
 				interruptor[i].valor1 = atoi(sensor_data[i]);
-			//	ESP_LOGI(ALLOCATE_TASK_TAG, "This is interruptor posicion %d VALOR1: %d", i, interruptor[i].valor1);
+		//		ESP_LOGI(ALLOCATE_TASK_TAG, "This is interruptor posicion %d VALOR1: %d", i, interruptor[i].valor1);
 				i++;
 				port++;
 			}
@@ -759,7 +789,7 @@ static void allocate_data(uint8_t port_min, uint8_t port_max, uint8_t module, ch
 		case VENTILADOR_SENSORS:
 			while(port <= port_max){
 				ventilador[i].valor1 = atoi(sensor_data[i]);
-		//		ESP_LOGI(ALLOCATE_TASK_TAG, "This is ventilador posicion %d VALOR1: %d", i, ventilador[i].valor1);
+			//	ESP_LOGI(ALLOCATE_TASK_TAG, "This is ventilador posicion %d VALOR1: %d", i, ventilador[i].valor1);
 				i++;
 				port++;
 			}
@@ -768,12 +798,12 @@ static void allocate_data(uint8_t port_min, uint8_t port_max, uint8_t module, ch
 		case INCLINACION_SENSORS:
 			while(port <= port_max){
 				splitted_sensor_data = split_sensors(sensor_data[q], &j, ":");
-				inclinacion[i].valor1 = atoi(splitted_sensor_data[0]);
+				/*		inclinacion[i].valor1 = atoi(splitted_sensor_data[0]);
 				inclinacion[i].valor2 = atoi(splitted_sensor_data[1]);
 				inclinacion[i].valor3 = atoi(splitted_sensor_data[2]);
-			/*	ESP_LOGI(ALLOCATE_TASK_TAG, "This is inclinacion posicion %d, VALOR1 %d", i, inclinacion[i].valor1);
+				ESP_LOGI(ALLOCATE_TASK_TAG, "This is inclinacion posicion %d, VALOR1 %d", i, inclinacion[i].valor1);
 				ESP_LOGI(ALLOCATE_TASK_TAG, "This is inclinacion posicion %d, VALOR2 %d", i, inclinacion[i].valor2);
-				ESP_LOGI(ALLOCATE_TASK_TAG, "This is inclinacion posicion %d, VALOR3 %d", i, inclinacion[i].valor3); */
+				ESP_LOGI(ALLOCATE_TASK_TAG, "This is inclinacion posicion %d, VALOR3 %d", i, inclinacion[i].valor3);*/
 				i++;
 				port++;
 				q++;
@@ -801,7 +831,7 @@ static void allocate_data(uint8_t port_min, uint8_t port_max, uint8_t module, ch
 static esp_err_t parse_data(uint8_t* data) {
     static const char *PARSE_TASK_TAG = "PARSE_DATA";
     esp_log_level_set(PARSE_TASK_TAG, ESP_LOG_INFO);
-   // ESP_LOGI(PARSE_TASK_TAG, "Parse data begin");
+    ESP_LOGI(PARSE_TASK_TAG, "Parse data begin");
     char UART_Payload[150];
     sprintf(UART_Payload, "%s", data);
     char *token;
@@ -823,7 +853,7 @@ static esp_err_t parse_data(uint8_t* data) {
         goto cleanup;  // jump to the cleanup section of the code
     }
     if (strstr(UART_Payload, "d") == NULL){
-    	ESP_LOGE(PARSE_TASK_TAG, "Invalid data format: could not find 'd' delimiter");
+    	ESP_LOGE(PARSE_TASK_TAG, "Invalid data format: could not find 'g' delimiter");
     	xEventGroupSetBits(synchronize_serial_coms_group, not_parsing_data);
         goto cleanup;  // jump to the cleanup section of the code
     }
@@ -845,7 +875,13 @@ static esp_err_t parse_data(uint8_t* data) {
     token = strtok(NULL, "");
     module = (uint8_t) strtoul(token, NULL, 10);
 
-  //  ESP_LOGI(PARSE_TASK_TAG, "This is sensor data: %s", sensor_data);
+    if(module == 0){
+    	ESP_LOGE(PARSE_TASK_TAG, "Module is zero, response not valid");
+     	xEventGroupSetBits(synchronize_serial_coms_group, not_parsing_data);
+     	goto cleanup;
+    }
+
+    ESP_LOGI(PARSE_TASK_TAG, "This is sensor data: %s", sensor_data);
 
     uint8_t comma_count = 0;
     for(int j = 0; j <= strlen(sensor_data); j++){
@@ -879,15 +915,16 @@ void UART_tx_task(void *arg){
     uint8_t *data = (uint8_t*) malloc(RX_BUF_SIZE+1);
     uint16_t time_to_request = atoi(readx_nvs("1_TRAMA-TIME"));
     web_buffer = malloc(400*sizeof(char));
+    strcpy(web_buffer, "|");
     while (1) {
     	memset(&verificador, 0, sizeof(verificador));
-    	strcpy(web_buffer, "|");
 
     	xEventGroupWaitBits(synchronize_serial_coms_group, not_parsing_data, pdTRUE, pdTRUE, pdMS_TO_TICKS(3000));
         RequestForSTMData("REQUEST_FOR_TEMPERATURE_SENSORS", (uint8_t) READ_PORT, 0, 0, 0, 255, 0, (uint8_t) TEMPERATURE_SENSORS); //Está implementado
     	if(xQueueReceive(uart_queue, &data, 5000/portTICK_PERIOD_MS)){
     		ESP_LOGI(TX_TASK_TAG, "Recibi un item de la cola cuyo valor es %s", data);
     		verificador.temperatura = (parse_data(data) == ESP_OK) ? true : false;
+    		verificador.gps = true;
     	}
     	else{
     		ESP_LOGI(TX_TASK_TAG, "No recibi item de la cola");
@@ -895,65 +932,81 @@ void UART_tx_task(void *arg){
     	}
 
     	xEventGroupWaitBits(synchronize_serial_coms_group, not_parsing_data, pdTRUE, pdTRUE, pdMS_TO_TICKS(3000));
-        RequestForSTMData("REQUEST_FOR_LIQUIDO_SENSORS", (uint8_t) READ_PORT, 0, 0, 0, 255, 0, (uint8_t) LIQUIDO_SENSORS);
-    	if(xQueueReceive(uart_queue, &data, 5000/portTICK_PERIOD_MS) == pdPASS){
+    	RequestForSTMData("REQUEST_FOR_DIGITAL_INPUT_SENSORS", (uint8_t) READ_PORT, 0, 0, 0, 255, 0, (uint8_t) DIGITAL_INPUT_SENSORS);
+    	if(xQueueReceive(uart_queue, &data, 5000/portTICK_PERIOD_MS)){
     		ESP_LOGI(TX_TASK_TAG, "Recibi un item de la cola cuyo valor es %s", data);
-    		verificador.liquido = (parse_data(data) == ESP_OK) ? true : false;
+    		verificador.digital_input = (parse_data(data) == ESP_OK) ? true : false;
     	}
     	else{
     		ESP_LOGI(TX_TASK_TAG, "No recibi item de la cola");
-    		verificador.liquido = false;
+    		verificador.digital_input = false;
     	}
 
-//		RequestForSTMData("REQUEST_FOR_INCLINACION_SENSORS", (uint8_t) READ_PORT, 0, 0, 0, 255, 0, (uint8_t) INCLINACION_SENSORS); //Está implementado, retorna los puertos 5,6,7,8
-//      event_bits = xEventGroupWaitBits(synchronize_serial_coms_group, not_parsing_data, pdTRUE, pdTRUE, pdMS_TO_TICKS(5000));
 
-//      RequestForSTMData("REQUEST_FOR_GPS_SENSORS", (uint8_t) READ_PORT, 0, 0, 0, 255, 0, (uint8_t) GPS_SENSORS);
-//      xEventGroupWaitBits(synchronize_serial_coms_group, not_parsing_data, true, true, portMAX_DELAY);
-    	verificador.gps = true;
-
-//    	xEventGroupWaitBits(synchronize_serial_coms_group, not_parsing_data, true, true, portMAX_DELAY); //El event group sirve para implementar el TimeOut
-//    	RequestForSTMData("REQUEST_FOR_ANALOGICO_SENSORS", (uint8_t) READ_PORT, 0, 0, 0, 255, 0, (uint8_t) ANALOGICO_SENSORS);
-//    	if(xQueueReceive(uart_queue, &data, 5000/portTICK_PERIOD_MS)){
+//    	xEventGroupWaitBits(synchronize_serial_coms_group, not_parsing_data, pdTRUE, pdTRUE, pdMS_TO_TICKS(3000));
+//        RequestForSTMData("REQUEST_FOR_LIQUIDO_SENSORS", (uint8_t) READ_PORT, 0, 0, 0, 255, 0, (uint8_t) LIQUIDO_SENSORS);
+//    	if(xQueueReceive(uart_queue, &data, 5000/portTICK_PERIOD_MS) == pdPASS){
 //    		ESP_LOGI(TX_TASK_TAG, "Recibi un item de la cola cuyo valor es %s", data);
-//    		verificador.analogico = (parse_data(data) == ESP_OK) ? true : false;;
+//    		verificador.liquido = (parse_data(data) == ESP_OK) ? true : false;
 //    	}
 //    	else{
 //    		ESP_LOGI(TX_TASK_TAG, "No recibi item de la cola");
-//    		verificador.analogico = false;
+//    		verificador.liquido = false;
+//    	}
+
+ /*   	RequestForSTMData("REQUEST_FOR_INCLINACION_SENSORS", (uint8_t) READ_PORT, 0, 0, 0, 255, 0, (uint8_t) INCLINACION_SENSORS); //Está implementado, retorna los puertos 5,6,7,8
+    	if(xQueueReceive(uart_queue, &data, 5000/portTICK_PERIOD_MS)){
+    		ESP_LOGI(TX_TASK_TAG, "Recibi un item de la cola cuyo valor es %s", data);
+    		//verificador.inclinacion = (parse_data(data) == ESP_OK) ? true : false;;
+    	}
+    	else{
+    		ESP_LOGI(TX_TASK_TAG, "No recibi item de la cola");
+    		verificador.inclinacion = false;
+    	}*/
+
+//      RequestForSTMData("REQUEST_FOR_GPS_SENSORS", (uint8_t) READ_PORT, 0, 0, 0, 255, 0, (uint8_t) GPS_SENSORS);
+//      xEventGroupWaitBits(synchronize_serial_coms_group, not_parsing_data, true, true, portMAX_DELAY);
+
+    	//xEventGroupWaitBits(synchronize_serial_coms_group, not_parsing_data, true, true, portMAX_DELAY); //El event group sirve para implementar el TimeOut
+    	RequestForSTMData("REQUEST_FOR_ANALOGICO_SENSORS", (uint8_t) READ_PORT, 0, 0, 0, 255, 0, (uint8_t) ANALOGICO_SENSORS);
+    	if(xQueueReceive(uart_queue, &data, 5000/portTICK_PERIOD_MS)){
+    		ESP_LOGI(TX_TASK_TAG, "Recibi un item de la cola cuyo valor es %s", data);
+    		verificador.analogico = (parse_data(data) == ESP_OK) ? true : false;;
+    	}
+    	else{
+    		ESP_LOGI(TX_TASK_TAG, "No recibi item de la cola");
+    		verificador.analogico = false;
+    	}
+
+//        xEventGroupWaitBits(synchronize_serial_coms_group, not_parsing_data, pdTRUE, pdTRUE, pdMS_TO_TICKS(3000));
+//        RequestForSTMData("REQUEST_FOR_DIGITAL_OUTPUT_SENSORS", (uint8_t) READ_PORT, 0, 0, 0, 255, 0, (uint8_t) DIGITAL_OUTPUT_SENSORS);
+//    	if(xQueueReceive(uart_queue, &data, 5000/portTICK_PERIOD_MS)){
+//    		ESP_LOGI(TX_TASK_TAG, "Recibi un item de la cola cuyo valor es %s", data);
+//    		verificador.digital_output = (parse_data(data) == ESP_OK) ? true : false;;
+//    	}
+//    	else{
+//    		ESP_LOGI(TX_TASK_TAG, "No recibi item de la cola");
+//    		verificador.digital_output = false;
 //    	}
 //
+//    	xEventGroupWaitBits(synchronize_serial_coms_group, not_parsing_data, pdTRUE, pdTRUE, pdMS_TO_TICKS(3000));
+//    	RequestForSTMData("REQUEST_FOR_VENTILADOR_SENSORS", (uint8_t) READ_PORT, 0, 0, 0, 255, 0, (uint8_t) VENTILADOR_SENSORS);
+//    	if(xQueueReceive(uart_queue, &data, 5000/portTICK_PERIOD_MS)){
+//    		ESP_LOGI(TX_TASK_TAG, "Recibi un item de la cola cuyo valor es %s", data);
+//    		verificador.ventilador = (parse_data(data) == ESP_OK) ? true : false;
+//    	}
+//    	else{
+//    		ESP_LOGI(TX_TASK_TAG, "No recibi item de la cola");
+//    		verificador.ventilador = false;
+//    	}
 //
-        xEventGroupWaitBits(synchronize_serial_coms_group, not_parsing_data, pdTRUE, pdTRUE, pdMS_TO_TICKS(3000));
-        RequestForSTMData("REQUEST_FOR_DIGITAL_OUTPUT_SENSORS", (uint8_t) READ_PORT, 0, 0, 0, 255, 0, (uint8_t) DIGITAL_OUTPUT_SENSORS);
-    	if(xQueueReceive(uart_queue, &data, 5000/portTICK_PERIOD_MS)){
-    		ESP_LOGI(TX_TASK_TAG, "Recibi un item de la cola cuyo valor es %s", data);
-    		verificador.digital_output = (parse_data(data) == ESP_OK) ? true : false;;
-    	}
-    	else{
-    		ESP_LOGI(TX_TASK_TAG, "No recibi item de la cola");
-    		verificador.digital_output = false;
-    	}
-
-    	xEventGroupWaitBits(synchronize_serial_coms_group, not_parsing_data, pdTRUE, pdTRUE, pdMS_TO_TICKS(3000));
-    	RequestForSTMData("REQUEST_FOR_VENTILADOR_SENSORS", (uint8_t) READ_PORT, 0, 0, 0, 255, 0, (uint8_t) VENTILADOR_SENSORS);
-    	if(xQueueReceive(uart_queue, &data, 5000/portTICK_PERIOD_MS)){
-    		ESP_LOGI(TX_TASK_TAG, "Recibi un item de la cola cuyo valor es %s", data);
-    		verificador.ventilador = (parse_data(data) == ESP_OK) ? true : false;
-    	}
-    	else{
-    		ESP_LOGI(TX_TASK_TAG, "No recibi item de la cola");
-    		verificador.ventilador = false;
-    	}
-
     	if (verificador.temperatura | verificador.liquido | verificador.inclinacion | verificador.gps | verificador.analogico | verificador.digital_output | verificador.ventilador) {
     	    // call web_buffer_constructor function here
     		web_buffer_constructor(verificador);
             ESP_LOGI(TX_TASK_TAG, "Este es el web buffer %s", web_buffer);
-         //   grabar_nvs("bufferwebnvs",web_buffer);
             endpoint_discriminator();
     	} else {
-    	    ESP_LOGI(TX_TASK_TAG, "No UART response from any module");
+    	    ESP_LOGI(TX_TASK_TAG, "No UART response from any module. Can't build web buffer");
     	}
 
         vTaskDelay(time_to_request / portTICK_PERIOD_MS);
@@ -976,7 +1029,7 @@ void UART_rx_task(void *arg)
         const int rxBytes = uart_read_bytes(UART_NUM_1, data, RX_BUF_SIZE, 1000 / portTICK_RATE_MS);
         if (rxBytes > 0) {
         	data[rxBytes] = 0;
-      //  	ESP_LOGI(RX_TASK_TAG, "This is data received from STM32: %s", (char *) data);
+        	ESP_LOGI(RX_TASK_TAG, "This is data received from STM32: %s", (char *) data);
             //parse_data(data, rxBytes);
             xQueueSend(uart_queue, &data, (TickType_t)5);
         }
@@ -984,7 +1037,54 @@ void UART_rx_task(void *arg)
     free(data);
 }
 
+//Matricular llaves se refiere a asignar cada llave a un puerto específico, esta información depende netamente del usuario
+//Y de como configure la ivAdventureMini desde el endpoint
+void matricular_llaves(void){
+	static const char *MATRICULA_LLAVES_TASK_TAG = "MATRICULA_DE_LLAVES";
+    esp_log_level_set(MATRICULA_LLAVES_TASK_TAG, ESP_LOG_INFO);
+	//Formato de esta matricula:
+	//writex_nvs(llave, Puerto_asignado_a_esta_llave);
 
+	//Llaves de temperatura
+	pre_writex_nvs(TEMPTRANS, 0);
+	pre_writex_nvs(NEVERA, 1);
+
+    //Llaves de ventiladores
+	pre_writex_nvs(VENTILADOR_A, 40);
+	pre_writex_nvs(VENTILADOR_C, 41);
+
+	//Llave de entrada digital
+	pre_writex_nvs(INPUT_DIGITAL_1, 4);
+
+	//Llaves de tanques
+	pre_writex_nvs(GREYWATER, 6);
+	pre_writex_nvs(OILOTHER, 7);
+	pre_writex_nvs(BALLAST, 8);
+
+    //Llaves de inclinacion
+	pre_writex_nvs(INCLINACION_DISP_ROLL_PITCH_YAW, 9);
+
+	//Llaves de analógico
+	pre_writex_nvs(PRESACEI, 10);
+	pre_writex_nvs(PRESCOM, 11);
+	pre_writex_nvs(ACELERADOR_1, 12);
+	pre_writex_nvs(ACELERADOR_2, 13);
+	pre_writex_nvs(ACELERADOR_3, 14);
+	pre_writex_nvs(ACELERADOR_4, 15);
+	pre_writex_nvs(BATERIA_A_CUR, 16);
+	pre_writex_nvs(PRESION_DISP, 17);
+
+	//Llaves de interruptores
+	pre_writex_nvs(FGD_TRANSM_TRACCION, 42);
+	//writex_nvs("40", 42);
+	pre_writex_nvs(RGD_TRANSM_TRACCION, 43);
+	//writex_nvs("41", 43);
+
+	//Llaves de GPS
+    pre_writex_nvs(GNSS_GGA, 18);
+
+	ESP_LOGI(MATRICULA_LLAVES_TASK_TAG, "Llaves matriculadas!");
+}
 
 /*Esta funcion carga a la RAM de la ESP32 cuales llaves se encuentran habilitadas en el endpoint
  * esta información se encuentra cargada en la NVS, la idea de esta funcion es que se tenga que recorrer
@@ -1006,7 +1106,7 @@ void load_keys_with_port_assigned_to_RAM(){
     		//ESP_LOGW("REVISANDO_KEYS", "ERROR READING KEY!");
     		break;
     	default:
-    	//	ESP_LOGW(LOADING_KEYS_TAG, "key %d %s has port %d", i, llaves_tarjeta[i-1], aux);
+    		ESP_LOGW(LOADING_KEYS_TAG, "key %d %s has port %d", i, llaves_tarjeta[i-1], aux);
     		keys_with_ports[keys_ports_counter] = i;
     		keys_ports_counter++;
     		keys_with_ports = realloc(keys_with_ports, (keys_ports_counter + 1) * sizeof(uint8_t ));

@@ -52,7 +52,10 @@ char *trama_sensors(void)
 
 	//ESP_LOGW(TAG, "Este es el NVS %s", leer_nvs("tramanvs1"));
     char *string = NULL;
-    const char *temp= leer_nvs("7_USER_ID");
+   // char *temp= leer_nvs("7_USER_ID");
+    char *temp= "9LjcSDc+bgWwy4eKVJTVNlNxu/5ZtMom6/mOhx8nLg68pMxoZA3diJ6m04zeITzz";
+
+
     cJSON *monitor = cJSON_CreateObject();
 
     if (cJSON_AddStringToObject(monitor, "user", temp) == NULL)
@@ -64,7 +67,7 @@ char *trama_sensors(void)
             goto end;
         }
     if (cJSON_AddStringToObject(monitor, "trama", get_webbuffer()) == NULL)
-    //if (cJSON_AddStringToObject(monitor, "trama", leer_nvs("tramanvs1") ) == NULL)
+
             {
                 goto end;
             }
@@ -84,7 +87,7 @@ char *trama_panic(void)
 {
 
 	    char *string = NULL;
-	    const char *temp= leer_nvs("7_USER_ID");
+	    char *temp= "9LjcSDc+bgWwy4eKVJTVNlNxu/5ZtMom6/mOhx8nLg68pMxoZA3diJ6m04zeITzz";
 	    char* s = concat(panicdata, get_gnss());
 
 	    cJSON *monitor = cJSON_CreateObject();
@@ -118,7 +121,7 @@ char *trama_alarma(void)
 {
 
 	    char *string = NULL;
-	    const char *temp= leer_nvs("7_USER_ID");
+	    char *temp= "9LjcSDc+bgWwy4eKVJTVNlNxu/5ZtMom6/mOhx8nLg68pMxoZA3diJ6m04zeITzz";
 	    cJSON *monitor = cJSON_CreateObject();
 
 	    if (cJSON_AddStringToObject(monitor, "user", temp) == NULL)
@@ -147,6 +150,41 @@ char *trama_alarma(void)
 	    return string;
 }
 
+char *trama_registro(void)
+{
 
+	    char *string = NULL;
+	    char *temp= "9LjcSDc+bgWwy4eKVJTVNlNxu/5ZtMom6/mOhx8nLg68pMxoZA3diJ6m04zeITzz";
+	    cJSON *monitor = cJSON_CreateObject();
+
+	    if (cJSON_AddStringToObject(monitor, "idEmpresa", 95) == NULL)
+	    {
+	        goto end;
+	    }
+	    if (cJSON_AddStringToObject(monitor, "habilitado",true) == NULL)
+	        {
+	            goto end;
+	        }
+	    if (cJSON_AddStringToObject(monitor, "indAsignado", false) == NULL)
+
+	            {
+	                goto end;
+	            }
+	    if (cJSON_AddStringToObject(monitor, "serialInterno", temp) == NULL)
+
+	    	            {
+	    	                goto end;
+	    	            }
+	    string = cJSON_Print(monitor);
+	    if (string == NULL)
+	    {
+	        fprintf(stderr, "Failed to print monitor.\n");
+	    }
+
+	end:
+	    cJSON_Delete(monitor);
+
+	    return string;
+}
 
 #endif /* MAIN_JSON_CONTROLLER_H_ */

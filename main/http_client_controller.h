@@ -29,6 +29,7 @@
 #include "local_http_server.h"
 #include <esp_http_server.h>
 #include "esp_http_client.h"
+#include "json_controller.h"
 
 #define PANIC_PIN GPIO_NUM_19
 #define ALARM_PIN GPIO_NUM_21
@@ -155,14 +156,23 @@ void httptrama(int tipo){
 			ESP_LOGE(TAG, "HTTP POST request failed: %s", esp_err_to_name(err));
 		}
 
-		printf("res envio trama: %s\n", local_response_buffer2);
+		printf("RES envio trama: %s\n", local_response_buffer2);
+		writelog(local_response_buffer2);
+
 	 esp_http_client_cleanup(client);
 }
 static void http_rest_with_url(void)
 {
 
-	//ESP_LOGI(TAG, "entre a login");
-
+	ESP_LOGI(TAG, "entre a login");
+	  const char *post_data = "{\"field1\":\"value1\"}";
+	   //const char *post_data = "{\"Authorization\":\"Basic SUFtaW5pLTAxOjAxMEEwMDAwODExMmNmYTQzNjMwMzQzNzMzYTU1MTQ4IA\"}";
+	     char *temp= leer_nvs("7_USER_ID");
+	     char *temp2= leer_nvs("7_AHSN_BASE64");
+	     ESP_LOGI(TAG, "USER ID= %s",temp);
+	     ESP_LOGI(TAG, "USER 64= %s",temp2);
+	     temp2=concat("Basic ", temp2);
+	     ESP_LOGI(TAG, "USER 64 BASIC= %s",temp2);
     /**
      * NOTE: All the configuration parameters for http_client must be spefied either in URL or as host and path parameters.
      * If host and path parameters are not set, query parameter will be ignored. In such cases,
@@ -182,11 +192,10 @@ static void http_rest_with_url(void)
     esp_http_client_handle_t client = esp_http_client_init(&config);
 
     // POST
-    const char *post_data = "{\"field1\":\"value1\"}";
-   //const char *post_data = "{\"Authorization\":\"Basic SUFtaW5pLTAxOjAxMEEwMDAwODExMmNmYTQzNjMwMzQzNzMzYTU1MTQ4IA\"}";
-    esp_http_client_set_method(client, HTTP_METHOD_POST);
+      esp_http_client_set_method(client, HTTP_METHOD_POST);
     esp_http_client_set_header(client, "Content-Type", "application/json");
-    esp_http_client_set_header(client, "Authorization", leer_nvs("4_TOKEN-LOGIN"));
+    esp_http_client_set_header(client, "Authorization", temp2);
+    //esp_http_client_set_header(client, "Authorization", leer_nvs("4_TOKEN-LOGIN"));
     esp_http_client_set_post_field(client, post_data, strlen(post_data));
 
      esp_err_t err = esp_http_client_perform(client);
@@ -202,24 +211,102 @@ static void http_rest_with_url(void)
 	cJSON *root2 = cJSON_Parse(local_response_buffer);
 	int status = cJSON_GetObjectItem(root2,"status")->valueint;
 	char *message = cJSON_GetObjectItem(root2,"msg")->valuestring;
-	//ESP_LOGI(TAG, "mensajes= %s",message);
+	ESP_LOGI(TAG, "mensajes= %s\n",message);
 	if(status==200)//login correcto
 	  {
 		cJSON *body_response = cJSON_GetObjectItem(root2, "body");
 		token = cJSON_GetObjectItem(body_response, "token")->valuestring;
 		grabar_nvs("4_TOKEN-TRAMA", token);
-		//ESP_LOGI(TAG, "token= %s",token);
+	//	ESP_LOGI(TAG, "token= %s",token);
 		//ESP_LOGI(TAG, "termine respuesta de login ok");
 		estado=1;
 
 	  }
-	if(status==400 || status==401)
+	else if(status==400 || status==401)
 	   {
 		char message = cJSON_GetObjectItem(root2,"msg")->valueint;
 		ESP_LOGI(TAG, "message= %d",message);
 	   estado=0;
 	   }
+	else{ ESP_LOGW(TAG, "ERROR EN RESPUESTA");
+	   estado=0;}
+	cJSON_Delete(root2);
 
+
+    esp_http_client_cleanup(client);
+   // free(local_response_buffer);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+ if(estado==1)
+ {httptrama(0);}
+
+
+}
+
+static void http_register(void)
+{
+
+	ESP_LOGI(TAG, "entre a REGISTRO");
+	  const char *post_data = "{\"field1\":\"value1\"}";
+	   //const char *post_data = "{\"Authorization\":\"Basic SUFtaW5pLTAxOjAxMEEwMDAwODExMmNmYTQzNjMwMzQzNzMzYTU1MTQ4IA\"}";
+	     char *temp= leer_nvs("7_USER_ID");
+	     char *temp2= leer_nvs("7_AHSN_BASE64");
+	     ESP_LOGI(TAG, "USER ID= %s",temp);
+	     ESP_LOGI(TAG, "USER 64= %s",temp2);
+    /**
+     * NOTE: All the configuration parameters for http_client must be spefied either in URL or as host and path parameters.
+     * If host and path parameters are not set, query parameter will be ignored. In such cases,
+     * query parameter should be specified in URL.
+     *
+     * If URL as well as host and path parameters are specified, values of host and path will be considered.
+     */
+    esp_http_client_config_t config = {
+
+		.url= leer_nvs("4_URL-REG"),
+		.method = HTTP_METHOD_POST,
+        .event_handler = _http_event_handler,
+        .user_data = local_response_buffer,        // Pass address of local buffer to get response
+        .disable_auto_redirect = false,
+		.timeout_ms=atoi(leer_nvs("4_TIMEOUT-HTTP"))
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+
+    // POST
+      esp_http_client_set_method(client, HTTP_METHOD_POST);
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    //esp_http_client_set_header(client, "Authorization", temp2);
+   // esp_http_client_set_header(client, "Authorization", leer_nvs("4_TOKEN-LOGIN"));
+    esp_http_client_set_post_field(client, post_data, strlen(post_data));
+
+     esp_err_t err = esp_http_client_perform(client);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "HTTP POST Status = %d, content_length = %d",
+                esp_http_client_get_status_code(client),
+                esp_http_client_get_content_length(client));
+    } else {
+        ESP_LOGE(TAG, "HTTP POST request failed: %s", esp_err_to_name(err));
+    }
+
+
+	cJSON *root2 = cJSON_Parse(local_response_buffer);
+	int status = cJSON_GetObjectItem(root2,"status")->valueint;
+	char *message = cJSON_GetObjectItem(root2,"msg")->valuestring;
+	ESP_LOGI(TAG, "mensajes= %s\n",message);
+	if(status==200)//REGISTRO correcto
+	  {
+
+	//	ESP_LOGI(TAG, "token= %s",token);
+		ESP_LOGI(TAG, "termine respuesta de login ok");
+
+
+	  }
+	else if(status==400 || status==401)
+	   {
+		char message = cJSON_GetObjectItem(root2,"msg")->valueint;
+		ESP_LOGI(TAG, "message= %d",message);
+	   estado=0;
+	   }
+	else{ ESP_LOGW(TAG, "ERROR EN RESPUESTA");
+	   estado=0;}
 	cJSON_Delete(root2);
 
 
@@ -248,7 +335,7 @@ static void panic_button_task(void *pvParameters)
 	while(1){
 	uint8_t level = gpio_get_level(PANIC_PIN);
 	if (level == 0){
-	    	ESP_LOGW("PANIC", "El boton se ha activado");
+	    	ESP_LOGE("PANIC", "El boton se ha activado");
 	    	httptrama(1);
 	    	vTaskDelay(2000 / portTICK_PERIOD_MS);
 
@@ -264,7 +351,7 @@ static void alarm_button_task(void *pvParameters)
 	while(1){
 	uint8_t level = gpio_get_level(ALARM_PIN);
 	if (level == 0){
-	    	ESP_LOGW("ALARMA", "La alarma se ha activado");
+	    	ESP_LOGE("ALARMA", "La alarma se ha activado");
 	    	httptrama(2);
 	    	vTaskDelay(2000 / portTICK_PERIOD_MS);
 
@@ -275,5 +362,17 @@ static void alarm_button_task(void *pvParameters)
     ESP_LOGI(TAG, "Finish task alarm");
     vTaskDelete(NULL);
 }
+static void webbuff_task(void *pvParameters)
+{
+	while(1){
 
+	    	ESP_LOGE("BUFFER", ":%s\n",get_webbuffer());
+
+
+	vTaskDelay(500 / portTICK_PERIOD_MS);
+
+	}
+    ESP_LOGI(TAG, "Finish task alarm");
+    vTaskDelete(NULL);
+}
 #endif /* MAIN_HTTP_CLIENT_CONTROLLER_H_ */

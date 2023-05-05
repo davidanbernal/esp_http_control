@@ -14,6 +14,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_spiffs.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_event.h"
@@ -29,8 +30,12 @@
 #include "wifi_controller.h"
 #include "local_http_server.h"
 #include "http_client_controller.h"
+#include "file_server_controller.h"
 #include <esp_http_server.h>
 #include "esp_http_client.h"
+//#include "STM_FLASH_CONTROLLER/stm_flash/include/stm_flash.h"
+//#include "STM_FLASH_CONTROLLER/stm_pro_mode/include/stm_pro_mode.h"
+
 
 
 void init_serial_coms(void) {
@@ -62,11 +67,9 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
-   // initSPIFFS();
-   // gpio_set_direction(ERASE_FLASH_MEMORY_PIN, GPIO_MODE_INPUT);
-   // gpio_set_pull_mode(ERASE_FLASH_MEMORY_PIN, GPIO_PULLUP_ONLY);
-    //uint8_t level = gpio_get_level(ERASE_FLASH_MEMORY_PIN);
-    gpio_set_direction(PANIC_PIN, GPIO_MODE_INPUT);
+    initSPIFFS();
+
+     gpio_set_direction(PANIC_PIN, GPIO_MODE_INPUT);
     gpio_set_pull_mode(PANIC_PIN, GPIO_PULLUP_ONLY);
     gpio_set_direction(ALARM_PIN, GPIO_MODE_INPUT);//ELIMINAR CUANDO SE REALICE LOGICA DE ALARMAS
     gpio_set_pull_mode(ALARM_PIN, GPIO_PULLUP_ONLY);//ELIMINAR CUANDO SE REALICE LOGICA DE ALARMAS
@@ -106,38 +109,44 @@ else//(counter==1)
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnect_handler, &server));
 
 
-   // char * first_boot;
+
     	esp_err_t result_ahsn;
     	char * 	first_boot = readx_nvs("7_STATUS-MATR");
     	if(strcmp(first_boot, "1") != 0){
     	   ESP_LOGW("ERASE_FLASH_MEMORY", "Erasing flash memory");
     	   ESP_ERROR_CHECK(nvs_flash_erase());
-    	   writex_nvs("1_TEMPAMBINT", "2");
-    	   ESP_LOGW("ERASE_FLASH_MEMORY", "Enrolling keys");
-    	 //  matricular_llaves();
-    	   ESP_LOGW("ERASE_FLASH_MEMORY", "Saving time interval for serial communications");
-    	   writex_nvs("1_TRAMA-TIME", "500"); //Valor inicial de 500 ms
+
     	   ESP_LOGW("ERASE_FLASH_MEMORY", "Requesting and storing AHSN");
+    	   vTaskDelay(500 / portTICK_PERIOD_MS);
+
     	   result_ahsn = request_and_store_ahsn();
-    	   valores_iniciales();
-    	   server = start_webserver();//Server http
 
     	   if(result_ahsn != ESP_OK){
     		   ESP_LOGW("ERASE_FLASH_MEMORY", "Request and storing of AHSN has failed");
     	   }
+    	   else{
+    		   valores_iniciales();
+    		   server = start_webserver();//Server http
+    	   }
     	}
     	else{
-    	   ESP_LOGW("ERASE_FLASH_MEMORY", "Flash memory NOT erased, previous contents still loaded");
-    	    //ESP_ERROR_CHECK(nvs_flash_erase()); DESCOMENTAR PARA SIEMPRE BORRAR LA NVS EN LA IVADVENTUREMINI
+    	   ESP_LOGW("INCIO POSTERIOR", "Cargando tareas");
+    	   leer_nvs("7_USER_ID");
+    	   leer_nvs("7_AHSN_BASE64");
     		load_keys_with_port_assigned_to_RAM();
+
     	    synchronize_serial_coms_group = xEventGroupCreate();
     	    uart_queue = xQueueCreate(1, sizeof(uint8_t*));
+    	    server = start_webserver();//Server http
     	    xTaskCreatePinnedToCore(UART_rx_task, "uart_rx_task", 1024*3, NULL, configMAX_PRIORITIES, NULL, 1); //Task for receiving data
     	    xTaskCreatePinnedToCore(UART_tx_task, "uart_tx_task", 1024*3, NULL, configMAX_PRIORITIES, NULL, 1); //Task for transmitting data7
     	    xTaskCreatePinnedToCore(&panic_button_task, "panic_button_task", 2048*2, NULL, 9, NULL,1); //Task panic button
     	    xTaskCreatePinnedToCore(&alarm_button_task, "alarm_button_task", 2048*2, NULL, 9, NULL,1);//Task alarms
-    	    xTaskCreatePinnedToCore(&http_client_task, "http_client_task", 8192*2, NULL, 10, NULL,0);//Task request http
-    	    server = start_webserver();//Server http
+    	    vTaskDelay(10000 / portTICK_PERIOD_MS);
+    	    xTaskCreatePinnedToCore(&http_client_task, "http_client_task", 8192*6, NULL, 10, NULL,0);//Task  http client token login
+    	//    xTaskCreatePinnedToCore(&webbuff_task, "webbuff_task", 8192*4, NULL, 10, NULL,0);//Task  http client token login
+    	   // xTaskCreatePinnedToCore(&httpcl_request_task, "httpcl_request_task", 8192*2, NULL, 10, NULL,0);//Task http client request data
+
     	     }
 
 

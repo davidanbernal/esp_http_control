@@ -24,6 +24,8 @@
 #include "nvs_controller.h"
 #include "serial_controller.h"
 #include "json_controller.h"
+#include "config_controller.h"
+#include "file_server_controller.h"
 
 
 static const char *TAGL = "HTTP_SERVER";
@@ -132,12 +134,19 @@ static esp_err_t version_handler(httpd_req_t *req)
 	char *trama_version(void)
 	{
 	    char *string = NULL;
+	    char *temp1=leer_nvs("7_USER_ID");
+	    char *temp2=leer_nvs("7_AHSN_BASE64");
+	    char *temp3=leer_nvs("7_SERIAL_ID");
 
 	    cJSON *monitor = cJSON_CreateObject();
 	    if (cJSON_AddStringToObject(monitor, "endpoint", "VERSION") == NULL)
 	        {goto end;	}
-	    if (cJSON_AddStringToObject(monitor, "Serial_ESP", concat2(modelav,s)) == NULL)
+	    if (cJSON_AddStringToObject(monitor, "Serial_ATmini", temp3) == NULL)
+	    	 {goto end;}
+	    if (cJSON_AddStringToObject(monitor, "Serial_ESP256", temp1) == NULL)
 	   	    {goto end;}
+	    if (cJSON_AddStringToObject(monitor, "Serial_ESP64", temp2) == NULL)
+	    	 {goto end;}
 	    if (cJSON_AddStringToObject(monitor, "MAC_ESP", s) == NULL)//pendiente extraer nombre del archivo
 	    	{goto end;}
 	    if (cJSON_AddStringToObject(monitor, "Version_ESP", "dsf34545g.bin") == NULL)//pendiente extraer nombre del archivo
@@ -168,6 +177,117 @@ static const httpd_uri_t version_uri = {
     .uri       = "/VERSION",
     .method    = HTTP_POST,
     .handler   = version_handler,
+    .user_ctx  = NULL
+};
+
+static esp_err_t log_handler(httpd_req_t *req)
+{
+	  char *responhttp=NULL;
+      char buf[100];
+       int ret, remaining = req->content_len;
+
+       if(remaining <= 0){
+
+       	char *json_armado(void)
+       		{
+       		    char *string = NULL;
+       		    readlog();
+       		    cJSON *monitor = cJSON_CreateObject();
+       		    if (cJSON_AddStringToObject(monitor, "endpoint", "LOG") == NULL)
+       		 		{goto end;	}
+
+       		    if (cJSON_AddStringToObject(monitor, "EVENTOS", "log de eventos") == NULL)
+       		   	    {
+       		   	        goto end;
+       		   	    }
+
+
+       		    string = cJSON_Print(monitor);
+       		    if (string == NULL)
+       		    {
+       		        fprintf(stderr, "Failed to print monitor.\n");
+       		    }
+
+       		end:
+       		    cJSON_Delete(monitor);
+       		    return string;
+       		}
+       	responhttp= json_armado();
+       }
+
+       else{
+
+       while (remaining >= 1) {
+           /* Read the data for the request */
+           if ((ret = httpd_req_recv(req, buf,
+                           MIN(remaining, sizeof(buf)))) <= 0) {
+               if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+                   /* Retry receiving if timeout occurred */
+                   continue;
+               }
+
+               return ESP_FAIL;
+           }
+
+           /* Send back the same data */
+          // httpd_resp_send_chunk(req, buf, ret);
+           remaining -= ret;
+
+           /* Log data received
+           ESP_LOGI(TAGL, "=========== RECEIVED DATA ==========");
+           ESP_LOGI(TAGL, "%.*s", ret, buf);
+           ESP_LOGI(TAGL, "trama: %s\n", buf);
+           ESP_LOGI(TAGL, "====================================");*/
+           int status = 0;
+
+			   cJSON *root2 =cJSON_ParseWithOpts(buf, NULL, false);
+			   if (root2 == NULL)
+				   {
+					   const char *error_ptr = cJSON_GetErrorPtr();
+					   if (error_ptr != NULL)
+					   {
+						   fprintf(stderr, "Error before: %s\n", error_ptr);
+						   responhttp=trama_endp( "LOG", "msg","Error in JSON data");
+
+					   }
+					   status = 0;
+					   goto end;
+				   }
+           		char *token = cJSON_GetObjectItem(root2,"token")->valuestring;
+           		//ESP_LOGI(TAGL, "token= %s",token);
+           		char *message = cJSON_GetObjectItem(root2,"RESET")->valuestring;
+				//ESP_LOGI(TAGL, "tiempo= %s",message);
+				int result = strcmp(token_httser, token);
+				if(result==0)//login correcto
+				  {
+					if (strcmp("true", message) == 0) {
+
+						ESP_LOGW(TAGL, "LOG CLEARED");
+						responhttp=trama_endp( "LOG", "msg","Clear in progress..");
+						//vTaskDelay(5000 / portTICK_PERIOD_MS);
+						clearlog();
+						}
+
+				  	}
+				else{
+					ESP_LOGE(TAGL, "ERROR DE LOGIN");
+					responhttp=trama_endp( "LOG", "msg","Error token..");
+				}
+				cJSON_Delete(root2);
+          }
+       }
+end:
+       httpd_resp_set_status(req,HTTPD_200);
+	   httpd_resp_sendstr(req, responhttp);
+   // End response
+	  httpd_resp_send_chunk(req, NULL, 0);
+	  return ESP_OK;
+}
+
+static const httpd_uri_t log_uri = {
+    .uri       = "/LOG",
+    .method    = HTTP_POST,
+    .handler   = log_handler,
     .user_ctx  = NULL
 };
 
@@ -375,7 +495,7 @@ static esp_err_t resetesp_handler(httpd_req_t *req)
 
 	       if(remaining <= 0){
 
-				   responhttp=trama_endp( "SETPORTS", "msg","No read Data");
+				   responhttp=trama_endp( "RESETESP", "msg","No read Data");
 			   }
 
 		   else{
@@ -433,7 +553,7 @@ static esp_err_t resetesp_handler(httpd_req_t *req)
 							httpd_resp_sendstr(req, responhttp);
 							httpd_resp_send_chunk(req, NULL, 0);
 							vTaskDelay(5000 / portTICK_PERIOD_MS);
-						    //esp_restart();
+						    esp_restart();
 							}
 						else {//ESP_LOGW(TAGL, "command error");
 
@@ -727,9 +847,9 @@ static esp_err_t wifiap_handler(httpd_req_t *req)
 	       		    char *string = NULL;
 
 	       		    cJSON *monitor = cJSON_CreateObject();
-	       		const char *temp1= leer_nvs("2_WiFi-AP-SSID");
-	       		const char *temp2= leer_nvs("2_WiFi-AP-PASS");
-	       		const char *temp3= leer_nvs("2_WiFi-AP-IP");
+	       		const char *temp1= leer_nvs("2_WIFI-AP-SSID");
+	       		const char *temp2= leer_nvs("2_WIFI-AP-PASS");
+	       		const char *temp3= leer_nvs("2_WIFI-AP-IP");
 
 	       		if (cJSON_AddStringToObject(monitor, "endpoint", "WIFIAP") == NULL)
 	       			{goto end; }
@@ -799,7 +919,7 @@ static esp_err_t wifiap_handler(httpd_req_t *req)
 				if(result==0)//login correcto
 				  {
 					char *ssidcom=concat(ssidap, "_");
-					grabar_nvs("2_WiFi-AP-SSID",concat(ssidcom, leer_nvs("8_MACADRRWIFI")));
+					grabar_nvs("2_WIFI-AP-SSID",concat(ssidcom, leer_nvs("8_MACADRRWIFI")));
 					//grabar_nvs("2_WiFi-AP-SSID",ssidap);
 					grabar_nvs("2_WIFI-AP-PASS",passap);
 					grabar_nvs("2_WIFI-AP-IP",ipap);
@@ -834,19 +954,19 @@ static esp_err_t wifist_handler(httpd_req_t *req)
 	char *responhttp=NULL;
 	char buf[300];
 
-
+	printf("WIFI ST HANDLER\n");
 	       int ret, remaining = req->content_len;
 
 	       if(remaining <= 0){
-
+	    	   printf("WIFI ST HANDLER 1\n");
 	       	char *json_armado(void)
 	       		{
 	       		    char *string = NULL;
 
-	       		    cJSON *monitor = cJSON_CreateObject();
-	       		const char *temp1= leer_nvs("2_WiFi-ST-SSID");
-				const char *temp2= leer_nvs("2_WiFi-ST-PASS");
-				const char *temp3= leer_nvs("2_WiFi-ST-INTE");
+	       		  cJSON *monitor = cJSON_CreateObject();
+	       		const char *temp1= leer_nvs("2_WIFI-ST-SSID");
+				const char *temp2= leer_nvs("2_WIFI-ST-PASS");
+				const char *temp3= leer_nvs("2_WIFI-ST-INTE");
 
 				if (cJSON_AddStringToObject(monitor, "endpoint", "WIFIST") == NULL)
 					{goto end; }
@@ -908,10 +1028,16 @@ static esp_err_t wifist_handler(httpd_req_t *req)
 	           		char *passst = cJSON_GetObjectItem(root2,"WIFI_ST_PASS")->valuestring;
 	           		char *intentos = cJSON_GetObjectItem(root2,"WIFI_ST_INTENTOS")->valuestring;
 
+	           		/*printf("TOKEN: %s\n",token );
+	           		printf("SSID: %s\n",ssidst );
+	           		printf("PASS: %s\n",passst );
+	           		printf("INT: %s\n", intentos);*/
+
+
 					int result = strcmp(token_httser, token);
 					if(result==0)//login correcto
 					  {
-						grabar_nvs("2_WiFi-ST-SSID",ssidst);
+						grabar_nvs("2_WIFI-ST-SSID",ssidst);
 						grabar_nvs("2_WIFI-ST-PASS",passst);
 						grabar_nvs("2_WIFI-ST-INTE",intentos);
 						ESP_LOGW(TAGL, "Data wifi ap saved");
@@ -957,7 +1083,6 @@ static esp_err_t sethttp_handler(httpd_req_t *req)
 
 		       		const char *temp1= leer_nvs("4_URL-TRAMA");
 					const char *temp2= leer_nvs("4_URL-LOGIN");
-					const char *temp3= leer_nvs("4_TOKEN-LOGIN");// ELIMINAR PARA VERSION FINAL
 					const char *temp4= leer_nvs("4_TIMEOUT-HTTP");
 					const char *temp5= leer_nvs("4_TOKEN-TIME");
 					const char *temp6= leer_nvs("4_SERVER-TIME");
@@ -969,8 +1094,6 @@ static esp_err_t sethttp_handler(httpd_req_t *req)
 		       		 	{goto end; }
 		       		if (cJSON_AddStringToObject(monitor, "URL_LOGIN", temp2) == NULL)
 		       			 { goto end; }
-		       		if (cJSON_AddStringToObject(monitor, "TOKEN_LOGIN", temp3) == NULL) // ELIMINAR PARA VERSION FINAL
-						{goto end; }
 		       		if (cJSON_AddStringToObject(monitor, "TOKEN_SERVER", temp7) == NULL) // ELIMINAR PARA VERSION FINAL
 		       			{goto end; }
 		       		if (cJSON_AddStringToObject(monitor, "TIMEOUT_HTTPCLIENT", temp4) == NULL)
@@ -1034,19 +1157,18 @@ static esp_err_t sethttp_handler(httpd_req_t *req)
 		           	    char *token = cJSON_GetObjectItem(root2,"token")->valuestring;
 		           		char *urltra = cJSON_GetObjectItem(root2,"URL_TRAMA")->valuestring;
 		           		char *urllog = cJSON_GetObjectItem(root2,"URL_LOGIN")->valuestring;
-		           		char *toklog = cJSON_GetObjectItem(root2,"TOKEN_LOGIN")->valuestring;
 		           		char *tokser = cJSON_GetObjectItem(root2,"TOKEN_SERVER")->valuestring;
 		           		char *timout = cJSON_GetObjectItem(root2,"TIMEOUT_HTTPCLIENT")->valuestring;
 						char *toktim = cJSON_GetObjectItem(root2,"TOKEN_TIME")->valuestring;
 						char *sertim = cJSON_GetObjectItem(root2,"SERVER_TIME")->valuestring;
 
 						int result = strcmp(token_httser, token);
+
 						if(result==0)//login correcto
 						  {
 							grabar_nvs("4_URL-TRAMA",urltra);
 					  		grabar_nvs("4_URL-LOGIN",urllog);
-							grabar_nvs("4_TOKEN-LOGIN",toklog);
-							grabar_nvs("4_TIMEOUT-HTTPCLIENT",timout);
+							grabar_nvs("4_TIMEOUT-HTTP",timout);
 							grabar_nvs("4_TOKEN-TIME",toktim);
 							grabar_nvs("5_TOK-HTTPSER",tokser);
 							grabar_nvs("4_SERVER-TIME",sertim);
@@ -1430,9 +1552,9 @@ static esp_err_t setports_handler(httpd_req_t *req)
 						grabar_nvs("1_VELOCIDAD_DIS",item131);
 						grabar_nvs("1_MSNM_DISP",item132);
 						grabar_nvs("1_SHIFT_DISP",item133);
+						grabar_nvs("7_STATUS-MATR", "1");
 
-
-						ESP_LOGW(TAGL, "Data HTTP saved");
+						ESP_LOGW(TAGL, "Data PORTS saved");
 						responhttp=trama_endp( "SETPORTS", "msg","Data saved..");
 						}
 					else{
@@ -1858,15 +1980,37 @@ static const httpd_uri_t ctrl = {
     .user_ctx  = NULL
 };
 
+
+
+
+
 static httpd_handle_t start_webserver(void)
 {
+	  const char* base_path = "/spiffs";
+	static struct file_server_data *server_data = NULL;
+
+	    if (server_data) {
+	        ESP_LOGE(TAGF, "File server already started");
+	        return ESP_ERR_INVALID_STATE;
+	    }
+
+	    /* Allocate memory for server data */
+	    server_data = calloc(1, sizeof(struct file_server_data));
+	    if (!server_data) {
+	        ESP_LOGE(TAGF, "Failed to allocate memory for server data");
+	        return ESP_ERR_NO_MEM;
+	    }
+	    strlcpy(server_data->base_path, base_path,
+	            sizeof(server_data->base_path));
+
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 21;//Cantidad de uri maximas
+    config.max_uri_handlers = 25;//Cantidad de uri maximas
     config.lru_purge_enable = true;
-    config.stack_size=8096;
+    config.stack_size=8096*4;
     config.recv_wait_timeout  = 30;                       //<---- This one here
     config.send_wait_timeout  = 30;
+    config.uri_match_fn = httpd_uri_match_wildcard;
 
     // Start the httpd server
     ESP_LOGI(TAGL, "Starting server on port: '%d'", config.server_port);
@@ -1895,8 +2039,20 @@ static httpd_handle_t start_webserver(void)
 		httpd_register_uri_handler(server, &tempo_uri);
 	    httpd_register_uri_handler(server, &gnss_uri);
 	    httpd_register_uri_handler(server, &ds18b20_uri);
+	    httpd_register_uri_handler(server, &log_uri);
         httpd_register_uri_handler(server, &echo);
         httpd_register_uri_handler(server, &ctrl);
+
+
+
+        /* URI handler for getting uploaded files */
+          httpd_uri_t file_download = {
+              .uri       = "/*",  // Match all URIs of type /path/to/file
+              .method    = HTTP_GET,
+              .handler   = download_get_handler,
+              .user_ctx  = server_data    // Pass server data as context
+          };
+          httpd_register_uri_handler(server, &file_download);
         #if CONFIG_EXAMPLE_BASIC_AUTH
         httpd_register_basic_auth(server);
         #endif
