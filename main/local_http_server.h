@@ -1981,9 +1981,6 @@ static const httpd_uri_t ctrl = {
 };
 
 
-
-
-
 static httpd_handle_t start_webserver(void)
 {
 	  const char* base_path = "/spiffs";
